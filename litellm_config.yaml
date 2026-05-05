@@ -1,0 +1,63 @@
+model_list:
+  - model_name: ministral
+    litellm_params:
+      model: ollama/ministral-3:8b
+      api_base: "http://host.docker.internal:11434"
+      rpm: 10          # 10 requests per minute — hard limit per deployment
+      tpm: 50000       # 50k tokens per minute
+
+  # fallback model — cheaper, used when primary is rate-limited or budget exhausted
+  - model_name: llama
+    litellm_params:
+      model: ollama/llama3.2:latest
+      api_base: "http://host.docker.internal:11434"
+      rpm: 5
+      tpm: 20000
+
+  # demo-only deployment: same model as ministral but with a very low rpm cap (2)
+  # used to demonstrate fallback — when this deployment's rpm is exhausted the
+  # router automatically routes to the llama fallback
+  - model_name: ministral-limited
+    litellm_params:
+      model: ollama/ministral-3:8b
+      api_base: "http://host.docker.internal:11434"
+      rpm: 2
+      tpm: 50000
+
+router_settings:
+  # enforce rpm/tpm as hard limits, not just routing hints
+  # without this, limits are soft — used only to pick deployments
+  optional_pre_call_checks:
+    - enforce_model_rate_limits
+
+  # when a deployment hits 429, put it on cooldown for 60s
+  # and route to fallback instead of failing the request
+  cooldown_time: 60
+  num_retries: 2
+  retry_after: 5
+
+  # fallback chains used in the demo
+  fallbacks:
+    - ministral:
+        - llama
+    - ministral-limited:
+        - llama
+
+litellm_settings:
+  # log all requests, responses, and spend to stdout
+  success_callback: []
+  failure_callback: []
+  set_verbose: false
+
+  # drop params not supported by the model instead of erroring
+  drop_params: true
+
+general_settings:
+  master_key: sk-dev-master-key
+
+  # global ceiling — no single request can consume more than 4k tokens
+  # complements per-deployment tpm limits
+  max_input_tokens: 4000
+
+  # store spend per key/user/team in sqlite for audit
+  store_model_in_db: false

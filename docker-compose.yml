@@ -1,0 +1,59 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    ports:
+      - "4000:4000"
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-dev-master-key}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # redis: shared rate-limit state across multiple proxy instances
+  # without redis, each proxy instance tracks limits independently
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # postgres: spend tracking and virtual key storage
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=litellm
+      - POSTGRES_DB=litellm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # demo app: sends bursts of requests to trigger rate limiting
+  demo:
+    build: .
+    environment:
+      - LITELLM_BASE_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-dev-master-key}
+    depends_on:
+      litellm:
+        condition: service_healthy
+    profiles:
+      - demo  # only starts with: docker compose --profile demo up
+
+volumes:
+  postgres_data:
