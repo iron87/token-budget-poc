@@ -1,6 +1,6 @@
-# rate limiting for LLM calls: why your token budget will explode in prod
+# Rate Limiting for LLM Calls: Why Your Token Budget Will Explode in Production
 
-*TL;DR: an LLM call has no inherent cost ceiling. A single misbehaving agent, a prompt that returns a 4k-token response instead of 20, or a retry loop that doesn't back off can drain a month's budget in hours. This post covers the failure modes that actually hit production and how to enforce limits at the gateway layer with LiteLLM, without touching application code.*
+*TL;DR: an LLM call has no inherent cost ceiling. A single misbehaving agent, a prompt that returns a 4k-token response instead of 20, or a retry loop that does not back off can drain a month's budget in hours. This post covers the failure modes that actually hit production and how to enforce limits at the gateway layer with LiteLLM, without touching application code.*
 
 **Repository**: [https://github.com/iron87/token-budget-poc](https://github.com/iron87/token-budget-poc)
 
@@ -17,17 +17,31 @@ LLM traffic behaves differently from classic REST traffic:
 In short: request-per-minute limits alone are useful, but not sufficient.
 
 ---
-## what LiteLLM proxy actually does
+## What LiteLLM Is and How It Is Used
 
-LiteLLM is a unified gateway for 100+ LLM APIs. the proxy server adds virtual keys, spend tracking, rate limiting, and guardrails on top of any model, with an OpenAI-compatible interface.
+LiteLLM is an LLM gateway. Think of it as a control plane that sits between your applications and model providers (OpenAI, Anthropic, Ollama, Azure OpenAI, and others) while exposing a single OpenAI-compatible API.
 
-The core model is: **virtual keys** sit between your application and the upstream provider. Each key carries its own budget, rpm limit, and tpm limit. the proxy enforces them before the request ever leaves your network.
+In practice, teams adopt it to solve three concrete production problems:
+
+1. They need one consistent API contract across multiple model providers.
+2. They need centralized guardrails (rate limits, budgets, model access rules) without rewriting every service.
+3. They need better operational control (fallbacks, routing, spend visibility, key-level isolation).
+
+The key concept is the **virtual key**:
+
+1. Each workload gets its own key.
+2. Each key has its own policies (`rpm_limit`, `tpm_limit`, `max_budget`, allowed models).
+3. LiteLLM enforces those policies before traffic reaches the upstream model.
 
 ```
 your app → virtual key (rpm=10, budget=$1/day) → LiteLLM proxy → Provider API
 ```
 
-By default, rpm and tpm values on a deployment are soft — used only to pick which deployment to route to. to make them hard limits that block requests with a 429, you need `enforce_model_rate_limits` in `router_settings.optional_pre_call_checks`.
+How it solves the budget-explosion problem is simple: enforcement happens at the gateway, not in scattered app code. A retry storm or noisy agent still hits hard limits and receives a 429 instead of draining spend.
+
+## What the LiteLLM Config Is Doing
+
+By default, rpm and tpm values on a deployment are soft and mostly used as routing hints. To make them hard limits that actively block with HTTP 429, enable `enforce_model_rate_limits` in `router_settings.optional_pre_call_checks`.
 
 ```yaml
 model_list:
