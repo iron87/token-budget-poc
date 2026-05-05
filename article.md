@@ -17,27 +17,45 @@ LLM traffic behaves differently from classic REST traffic:
 In short: request-per-minute limits alone are useful, but not sufficient.
 
 ---
-## What LiteLLM Is and How It Is Used
+## How to Solve It in Production
 
-LiteLLM is an LLM gateway. Think of it as a control plane that sits between your applications and model providers (OpenAI, Anthropic, Ollama, Azure OpenAI, and others) while exposing a single OpenAI-compatible API.
+The most reliable fix is to put a centralized LLM gateway between your apps and model providers.
 
-In practice, teams adopt it to solve three concrete production problems:
+LiteLLM is one option for this: it exposes an OpenAI-compatible API in front of providers (OpenAI, Anthropic, Ollama, Azure OpenAI, and others), and enforces policy before requests reach upstream models.
 
-1. They need one consistent API contract across multiple model providers.
-2. They need centralized guardrails (rate limits, budgets, model access rules) without rewriting every service.
-3. They need better operational control (fallbacks, routing, spend visibility, key-level isolation).
+Core operating model:
 
-The key concept is the **virtual key**:
+1. Define one virtual key per workload.
+2. Attach policies to each key (`rpm_limit`, `tpm_limit`, `max_budget`, allowed models).
+3. Route every app through the gateway, so limits are enforced centrally.
 
-1. Each workload gets its own key.
-2. Each key has its own policies (`rpm_limit`, `tpm_limit`, `max_budget`, allowed models).
-3. LiteLLM enforces those policies before traffic reaches the upstream model.
+Why this solves the problem: retry storms and noisy agents are blocked at the gateway (429 / policy denial), instead of consuming unlimited tokens across multiple services.
+
+If you evaluate other gateway platforms (for example Plano), validate these points first:
+
+1. **Rate controls**: hard per-key and per-model rpm/tpm enforcement.
+2. **Cost controls**: budget caps, spend tracking, budget windows/expiration.
+3. **Isolation**: per-workload keys, model allow-lists, tenant separation.
+4. **Reliability**: fallbacks, cooldowns, retries, and observability.
 
 ```
 your app → virtual key (rpm=10, budget=$1/day) → LiteLLM proxy → Provider API
 ```
 
-How it solves the budget-explosion problem is simple: enforcement happens at the gateway, not in scattered app code. A retry storm or noisy agent still hits hard limits and receives a 429 instead of draining spend.
+Next question: how do you implement this setup with the smallest operational footprint?
+
+## How to Use LiteLLM (Minimal Path)
+
+If you want to replicate this architecture quickly:
+
+1. Deploy LiteLLM proxy in front of your providers.
+2. Define model deployments and router policies in YAML.
+3. Generate one virtual key per workload with explicit budgets and rpm/tpm limits.
+4. Point your applications to the LiteLLM OpenAI-compatible endpoint and send the virtual key as bearer token.
+
+End-to-end example code and runnable demo are available here:
+
+**Repository**: [https://github.com/iron87/token-budget-poc](https://github.com/iron87/token-budget-poc)
 
 ## What the LiteLLM Config Is Doing
 
