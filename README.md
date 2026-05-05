@@ -4,9 +4,8 @@ a PoC that demonstrates rate limiting and budget guardrails for LLM calls
 using LiteLLM proxy. shows how to enforce hard rpm/tpm limits and per-key
 budget caps before requests leave your infrastructure.
 
-companion to: [rate limiting for LLM calls: why your token budget will explode in prod](#)
 
-## architecture
+## Architecture
 
 ```
 your app
@@ -20,7 +19,7 @@ your app
                           └─ fail fast when downstream is saturated
 ```
 
-## what this demonstrates
+## What this demonstrates
 
 | scenario | what triggers | what happens |
 |---|---|---|
@@ -29,13 +28,13 @@ your app
 | fallback chain | primary cooldown | router picks fallback without caller seeing it |
 | circuit breaker | N consecutive failures | app fails fast, stops retrying into saturated gateway |
 
-## prerequisites
+## Prerequisites
 
 - Docker and Docker Compose
 - Ollama installed and running
 - Python 3.8+ with venv support
 
-## quickstart
+## Quickstart
 
 ```bash
 git clone https://github.com/iron87/token-budget-poc
@@ -50,7 +49,7 @@ ollama pull llama3.2:latest
 ./demo.sh
 ```
 
-## manual curl
+## Manual curl
 
 ```bash
 docker compose up -d
@@ -93,7 +92,7 @@ open http://localhost:4000/ui
 
 also: `./test.sh` runs the full curl sequence automatically.
 
-## project structure
+## Project structure
 
 ```
 litellm_config.yaml     # model list, rpm/tpm limits, fallback chain, router settings
@@ -105,7 +104,7 @@ docker-compose.yml      # LiteLLM proxy + Redis (shared rate limit state) + Post
 venv/                   # Python virtual environment (created by demo.sh)
 ```
 
-## key config details
+## Key config details
 
 `enforce_model_rate_limits` in `router_settings.optional_pre_call_checks` is required
 to make rpm/tpm hard limits. without it, they're routing hints only.
@@ -114,7 +113,7 @@ redis is required for shared rate-limit state across multiple proxy instances.
 without redis, each instance tracks limits independently and limits are not enforced
 correctly under horizontal scale.
 
-## references
+## References
 
 - [BerriAI/litellm](https://github.com/BerriAI/litellm)
 - [LiteLLM — budgets & rate limits](https://docs.litellm.ai/docs/proxy/users)
